@@ -19,7 +19,7 @@ Built with [Tauri 2](https://v2.tauri.app/) (Rust + React/TypeScript).
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.77
-- [Durian](https://durian.gguf.org) installed and in PATH
+- [Durian](https://durian.gguf.org) installed and in PATH (auto detection in the recent version)
 - Windows: WebView2 (bundled with Windows 11, install separately on Windows 10)
 - Linux: `libwebkit2gtk-4.1-dev` and related GTK/WebKit packages
 
