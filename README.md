@@ -19,7 +19,7 @@ Built with [Tauri 2](https://v2.tauri.app/) (Rust + React/TypeScript).
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.77
-- [Durian](https://durian.gguf.org) installed and in PATH
+- [Durian](https://durian.gguf.org) installed and in PATH (auto detection in the recent version)
 - Windows: WebView2 (bundled with Windows 11, install separately on Windows 10)
 - Linux: `libwebkit2gtk-4.1-dev` and related GTK/WebKit packages
 
@@ -96,7 +96,7 @@ Settings (provider, API key, model, endpoint, toolsets, workspaces) are persiste
 
 ### Durian ✷
 
-Make sure `durian` is installed and accessible:
+Make sure `durian` is installed and accessible, for macSO/wsl/Linux
 
 ```bash
 # Install durian
@@ -127,6 +127,14 @@ The app supports all durian providers. Set your provider and API key in Settings
 | Google Gemini | API key |
 
 And 10+ more. See the [full provider list via the documentation](https://durian.gguf.org).
+
+
+## Contributing
+
+1. Fork the repo (see steps in `For developer/contributor(s)` section above)
+2. Create a feature branch
+3. Write tests (optional)
+4. Submit a PR
 
 ## License
 
