@@ -8,6 +8,17 @@ use std::sync::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(windows)]
+fn suppress_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_console_window(_: &mut Command) {}
+
 #[derive(Clone, serde::Serialize)]
 struct OutputChunk {
     id: String,
@@ -87,11 +98,15 @@ fn strip_ansi(s: &str) -> String {
 fn durian_config_path() -> Option<std::path::PathBuf> {
     if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA").ok().map(|base| {
-            std::path::PathBuf::from(base).join("durian").join("config.yaml")
+            std::path::PathBuf::from(base)
+                .join("durian")
+                .join("config.yaml")
         })
     } else {
         std::env::var("HOME").ok().map(|home| {
-            std::path::PathBuf::from(home).join(".durian").join("config.yaml")
+            std::path::PathBuf::from(home)
+                .join(".durian")
+                .join("config.yaml")
         })
     }
 }
@@ -130,7 +145,10 @@ fn apply_settings_to_config(settings: &Settings) -> Result<(), String> {
             if !settings.model.is_empty() && trimmed.starts_with("default:") {
                 replacements.push((idx, format!("{}default: {}", prefix, settings.model)));
             }
-            if !settings.provider.is_empty() && trimmed.starts_with("provider:") && !trimmed.starts_with("provider_s") {
+            if !settings.provider.is_empty()
+                && trimmed.starts_with("provider:")
+                && !trimmed.starts_with("provider_s")
+            {
                 replacements.push((idx, format!("{}provider: {}", prefix, settings.provider)));
             }
             if !settings.endpoint.is_empty() && trimmed.starts_with("base_url:") {
@@ -211,7 +229,11 @@ fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
         let name = entry.file_name().to_string_lossy().to_string();
 
         // Skip hidden files/dirs (starting with .) and node_modules
-        if name.starts_with('.') || name == "node_modules" || name == "__pycache__" || name == ".git" {
+        if name.starts_with('.')
+            || name == "node_modules"
+            || name == "__pycache__"
+            || name == ".git"
+        {
             continue;
         }
 
@@ -220,15 +242,22 @@ fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
             path: entry.path().to_string_lossy().to_string(),
             is_dir: metadata.is_dir(),
             size: metadata.len(),
-            modified: metadata.modified()
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+            modified: metadata
+                .modified()
+                .map(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                })
                 .unwrap_or(0),
         });
     }
 
     // Sort: directories first, then alphabetically
     entries.sort_by(|a, b| {
-        b.is_dir.cmp(&a.is_dir).then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 
     Ok(entries)
@@ -249,7 +278,8 @@ fn read_file_content(path: String) -> Result<String, String> {
 
 /// Get the modification time of the newest session file (or 0 if none).
 fn newest_session_mtime(dir: &std::path::Path) -> u128 {
-    std::fs::read_dir(dir).ok()
+    std::fs::read_dir(dir)
+        .ok()
         .and_then(|entries| {
             entries
                 .filter_map(|e| e.ok())
@@ -257,7 +287,12 @@ fn newest_session_mtime(dir: &std::path::Path) -> u128 {
                 .filter_map(|e| {
                     let meta = e.metadata().ok()?;
                     let modified = meta.modified().ok()?;
-                    Some(modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis())
+                    Some(
+                        modified
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .ok()?
+                            .as_millis(),
+                    )
                 })
                 .max()
         })
@@ -273,8 +308,11 @@ fn find_new_session(dir: &std::path::Path, pre_mtime: u128) -> Option<std::path:
             continue;
         }
         let meta = entry.metadata().ok()?;
-        let mtime = meta.modified().ok()?
-            .duration_since(std::time::UNIX_EPOCH).ok()?
+        let mtime = meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
             .as_millis();
         if mtime > pre_mtime {
             match &newest {
@@ -316,8 +354,8 @@ fn shorten_cmd(cmd: &str) -> String {
 struct ToolActivityInfo {
     detail: String,
     icon: &'static str,
-    action_type: &'static str,  // read, write, terminal, search, browser, memory, skill, delegate, generic
-    path: String,               // file path, URL, command, or key info
+    action_type: &'static str, // read, write, terminal, search, browser, memory, skill, delegate, generic
+    path: String,              // file path, URL, command, or key info
 }
 
 fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivityInfo {
@@ -362,7 +400,11 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
                 detail,
                 icon: "🔍",
                 action_type: "search",
-                path: if path.is_empty() { pattern.to_string() } else { path.to_string() },
+                path: if path.is_empty() {
+                    pattern.to_string()
+                } else {
+                    path.to_string()
+                },
             }
         }
 
@@ -377,7 +419,10 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
             }
         }
         "process" => {
-            let action = args.get("action").and_then(|a| a.as_str()).unwrap_or("process");
+            let action = args
+                .get("action")
+                .and_then(|a| a.as_str())
+                .unwrap_or("process");
             ToolActivityInfo {
                 detail: format!("Process: {}", action),
                 icon: "⌨",
@@ -462,7 +507,10 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
 
         // ── Memory & skills ───────────────────────────────────────
         "memory" => {
-            let action = args.get("action").and_then(|a| a.as_str()).unwrap_or("update");
+            let action = args
+                .get("action")
+                .and_then(|a| a.as_str())
+                .unwrap_or("update");
             ToolActivityInfo {
                 detail: format!("Memory: {}", action),
                 icon: "🧠",
@@ -471,7 +519,10 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
             }
         }
         "skill_manage" => {
-            let action = args.get("action").and_then(|a| a.as_str()).unwrap_or("manage");
+            let action = args
+                .get("action")
+                .and_then(|a| a.as_str())
+                .unwrap_or("manage");
             ToolActivityInfo {
                 detail: format!("Skill: {}", action),
                 icon: "📋",
@@ -517,7 +568,10 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
             path: String::new(),
         },
         "cronjob" => {
-            let action = args.get("action").and_then(|a| a.as_str()).unwrap_or("cron");
+            let action = args
+                .get("action")
+                .and_then(|a| a.as_str())
+                .unwrap_or("cron");
             ToolActivityInfo {
                 detail: format!("Cron: {}", action),
                 icon: "⏰",
@@ -544,23 +598,21 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
 #[tauri::command]
 fn check_durian() -> bool {
     if cfg!(target_os = "windows") {
-        Command::new("cmd.exe")
-            .arg("/C")
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg("/C")
             .arg("durian")
             .arg("--version")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|_| true)
-            .unwrap_or(false)
+            .stderr(Stdio::null());
+        suppress_console_window(&mut cmd);
+        cmd.status().map(|_| true).unwrap_or(false)
     } else {
-        Command::new("durian")
-            .arg("--version")
+        let mut cmd = Command::new("durian");
+        cmd.arg("--version")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|_| true)
-            .unwrap_or(false)
+            .stderr(Stdio::null());
+        suppress_console_window(&mut cmd);
+        cmd.status().map(|_| true).unwrap_or(false)
     }
 }
 
@@ -607,7 +659,11 @@ fn run_durian_query(
 
     // Toolsets: per-query override > saved setting
     let effective_toolsets = toolsets.or_else(|| {
-        if saved.toolsets.is_empty() { None } else { Some(saved.toolsets.clone()) }
+        if saved.toolsets.is_empty() {
+            None
+        } else {
+            Some(saved.toolsets.clone())
+        }
     });
     if let Some(ref t) = effective_toolsets {
         args.push("--toolsets".into());
@@ -627,7 +683,7 @@ fn run_durian_query(
         None
     };
 
-    // On Windows: batch file approach for proper quoting + console
+    // On Windows: batch file approach for proper quoting and shell resolution.
     let mut child = if cfg!(target_os = "windows") {
         let mut bat_lines = vec!["@echo off".to_string()];
 
@@ -654,13 +710,15 @@ fn run_durian_query(
 
         let temp_dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".into());
         let bat_path = std::path::PathBuf::from(&temp_dir).join(format!("durian_query_{}.bat", id));
-        fs::write(&bat_path, bat_lines.join("\r\n")).map_err(|e| format!("Failed to write batch file: {e}"))?;
+        fs::write(&bat_path, bat_lines.join("\r\n"))
+            .map_err(|e| format!("Failed to write batch file: {e}"))?;
 
         let mut cmd = Command::new("cmd.exe");
         cmd.arg("/C")
             .arg(&bat_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        suppress_console_window(&mut cmd);
 
         let child = cmd.spawn().map_err(|e| {
             format!("Failed to start durian: {e}. Make sure durian is installed and in your PATH.")
@@ -686,6 +744,8 @@ fn run_durian_query(
         if let Some(ref cwd) = project_path {
             cmd.current_dir(cwd);
         }
+
+        suppress_console_window(&mut cmd);
 
         cmd.spawn().map_err(|e| {
             format!("Failed to start durian: {e}. Make sure durian is installed and in your PATH.")
@@ -779,27 +839,36 @@ fn run_durian_query(
         // Locate the durian sessions directory
         let sessions_dir = if cfg!(target_os = "windows") {
             let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
-                let userprofile = std::env::var("USERPROFILE")
-                    .unwrap_or_else(|_| "C:\\Users\\Default".into());
+                let userprofile =
+                    std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".into());
                 format!("{}\\AppData\\Local", userprofile)
             });
             std::path::PathBuf::from(localappdata)
-                .join("durian").join("sessions")
+                .join("durian")
+                .join("sessions")
         } else {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
             std::path::PathBuf::from(home)
-                .join(".local").join("share").join("durian").join("sessions")
+                .join(".local")
+                .join("share")
+                .join("durian")
+                .join("sessions")
         };
 
-        if !sessions_dir.exists() { return; }
+        if !sessions_dir.exists() {
+            return;
+        }
 
         // Emit an initial "starting" event
-        let _ = app_sess.emit("durian-activity", serde_json::json!({
-            "id": id_sess,
-            "phase": "init",
-            "tool": "agent",
-            "detail": "Starting agent…",
-        }));
+        let _ = app_sess.emit(
+            "durian-activity",
+            serde_json::json!({
+                "id": id_sess,
+                "phase": "init",
+                "tool": "agent",
+                "detail": "Starting agent…",
+            }),
+        );
 
         // Snapshot the current newest file *before* our query creates a new one
         let pre_newest = newest_session_mtime(&sessions_dir);
@@ -807,7 +876,8 @@ fn run_durian_query(
         // Wait for durian to create a new session file
         let session_path = {
             let mut found: Option<std::path::PathBuf> = None;
-            for _ in 0..40 {   // up to ~10 s
+            for _ in 0..40 {
+                // up to ~10 s
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 if let Some(p) = find_new_session(&sessions_dir, pre_newest) {
                     found = Some(p);
@@ -820,12 +890,15 @@ fn run_durian_query(
             }
         };
 
-        let _ = app_sess.emit("durian-activity", serde_json::json!({
-            "id": id_sess,
-            "phase": "thinking",
-            "tool": "agent",
-            "detail": "Processing request…",
-        }));
+        let _ = app_sess.emit(
+            "durian-activity",
+            serde_json::json!({
+                "id": id_sess,
+                "phase": "thinking",
+                "tool": "agent",
+                "detail": "Processing request…",
+            }),
+        );
 
         let mut last_msg_count: usize = 0;
         let mut idle_ticks: usize = 0;
@@ -837,7 +910,9 @@ fn run_durian_query(
                 Ok(c) => c,
                 Err(_) => {
                     idle_ticks += 1;
-                    if idle_ticks > 60 { break; } // ~24 s with no file access
+                    if idle_ticks > 60 {
+                        break;
+                    } // ~24 s with no file access
                     continue;
                 }
             };
@@ -846,7 +921,9 @@ fn run_durian_query(
                 Ok(v) => v,
                 Err(_) => {
                     idle_ticks += 1;
-                    if idle_ticks > 60 { break; }
+                    if idle_ticks > 60 {
+                        break;
+                    }
                     continue;
                 }
             };
@@ -855,7 +932,9 @@ fn run_durian_query(
                 Some(arr) => arr,
                 None => {
                     idle_ticks += 1;
-                    if idle_ticks > 60 { break; }
+                    if idle_ticks > 60 {
+                        break;
+                    }
                     continue;
                 }
             };
@@ -868,27 +947,31 @@ fn run_durian_query(
                     if let Some(tool_calls) = msg.get("tool_calls").and_then(|tc| tc.as_array()) {
                         for tc in tool_calls {
                             if let Some(func) = tc.get("function") {
-                                let tool_name = func.get("name")
+                                let tool_name = func
+                                    .get("name")
                                     .and_then(|n| n.as_str())
                                     .unwrap_or("unknown");
-                                let args_str = func.get("arguments")
+                                let args_str = func
+                                    .get("arguments")
                                     .and_then(|a| a.as_str())
                                     .unwrap_or("{}");
                                 let args: serde_json::Value =
-                                    serde_json::from_str(args_str)
-                                        .unwrap_or(serde_json::json!({}));
+                                    serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
 
                                 let info = format_tool_activity(tool_name, &args);
 
-                                let _ = app_sess.emit("durian-activity", serde_json::json!({
-                                    "id": id_sess,
-                                    "phase": "tool",
-                                    "tool": tool_name,
-                                    "detail": info.detail,
-                                    "icon": info.icon,
-                                    "actionType": info.action_type,
-                                    "path": info.path,
-                                }));
+                                let _ = app_sess.emit(
+                                    "durian-activity",
+                                    serde_json::json!({
+                                        "id": id_sess,
+                                        "phase": "tool",
+                                        "tool": tool_name,
+                                        "detail": info.detail,
+                                        "icon": info.icon,
+                                        "actionType": info.action_type,
+                                        "path": info.path,
+                                    }),
+                                );
                             }
                         }
                     }
@@ -905,12 +988,15 @@ fn run_durian_query(
                         if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
                             if !content.is_empty() && msg.get("tool_calls").is_none() {
                                 // The agent is generating a text response
-                                let _ = app_sess.emit("durian-activity", serde_json::json!({
-                                    "id": id_sess,
-                                    "phase": "thinking",
-                                    "tool": "model",
-                                    "detail": "Generating response…",
-                                }));
+                                let _ = app_sess.emit(
+                                    "durian-activity",
+                                    serde_json::json!({
+                                        "id": id_sess,
+                                        "phase": "thinking",
+                                        "tool": "model",
+                                        "detail": "Generating response…",
+                                    }),
+                                );
                             }
                         }
                     }
@@ -918,7 +1004,9 @@ fn run_durian_query(
                 last_msg_count = messages.len();
             } else {
                 idle_ticks += 1;
-                if idle_ticks > 60 { break; }
+                if idle_ticks > 60 {
+                    break;
+                }
             }
         }
     });
@@ -929,24 +1017,34 @@ fn run_durian_query(
     std::thread::spawn(move || {
         let log_path = if cfg!(target_os = "windows") {
             let localappdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
-                let userprofile = std::env::var("USERPROFILE")
-                    .unwrap_or_else(|_| "C:\\Users\\Default".into());
+                let userprofile =
+                    std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".into());
                 format!("{}\\AppData\\Local", userprofile)
             });
             std::path::PathBuf::from(localappdata)
-                .join("durian").join("logs").join("agent.log")
+                .join("durian")
+                .join("logs")
+                .join("agent.log")
         } else {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
             std::path::PathBuf::from(home)
-                .join(".local").join("share").join("durian").join("logs").join("agent.log")
+                .join(".local")
+                .join("share")
+                .join("durian")
+                .join("logs")
+                .join("agent.log")
         };
 
-        if !log_path.exists() { return; }
+        if !log_path.exists() {
+            return;
+        }
         let mut file = match std::fs::File::open(&log_path) {
             Ok(f) => f,
             Err(_) => return,
         };
-        if file.seek(std::io::SeekFrom::End(0)).is_err() { return; }
+        if file.seek(std::io::SeekFrom::End(0)).is_err() {
+            return;
+        }
         let mut reader = BufReader::new(file);
 
         loop {
@@ -958,11 +1056,15 @@ fn run_durian_query(
                 }
                 Ok(_) => {
                     let trimmed = line.trim();
-                    if trimmed.is_empty() { continue; }
+                    if trimmed.is_empty() {
+                        continue;
+                    }
                     // Only forward ERROR / WARNING lines
                     let is_error = trimmed.contains("ERROR");
                     let is_warning = trimmed.contains("WARNING");
-                    if !is_error && !is_warning { continue; }
+                    if !is_error && !is_warning {
+                        continue;
+                    }
 
                     let (phase, detail) = if is_error {
                         ("error", format!("Error: {}", trimmed))
@@ -970,12 +1072,15 @@ fn run_durian_query(
                         ("warning", format!("Warning: {}", trimmed))
                     };
 
-                    let _ = app_log.emit("durian-activity", serde_json::json!({
-                        "id": id_log,
-                        "phase": phase,
-                        "tool": "agent",
-                        "detail": detail,
-                    }));
+                    let _ = app_log.emit(
+                        "durian-activity",
+                        serde_json::json!({
+                            "id": id_log,
+                            "phase": phase,
+                            "tool": "agent",
+                            "detail": detail,
+                        }),
+                    );
                 }
                 Err(_) => break,
             }
@@ -999,8 +1104,7 @@ fn save_session(app: AppHandle, session: serde_json::Value) -> Result<(), String
     let sessions_dir = dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir).map_err(|e| e.to_string())?;
     let content = serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?;
-    std::fs::write(sessions_dir.join(format!("{id}.json")), content)
-        .map_err(|e| e.to_string())
+    std::fs::write(sessions_dir.join(format!("{id}.json")), content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1088,10 +1192,13 @@ fn add_workspace(app: AppHandle, path: String, name: Option<String>) -> Result<S
             .unwrap_or_else(|| path.clone())
     });
 
-    let id = format!("ws_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
+    let id = format!(
+        "ws_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
 
     let workspace = Workspace {
         id,
@@ -1156,7 +1263,10 @@ fn remove_workspace(app: AppHandle, workspace_id: String) -> Result<Settings, St
 fn switch_workspace(app: AppHandle, workspace_id: String) -> Result<Settings, String> {
     let mut settings = load_settings_inner(&app)?;
 
-    let ws = settings.workspaces.iter().find(|w| w.id == workspace_id)
+    let ws = settings
+        .workspaces
+        .iter()
+        .find(|w| w.id == workspace_id)
         .ok_or("Workspace not found")?;
 
     settings.current_workspace_id = workspace_id;
@@ -1193,7 +1303,8 @@ fn collect_dir_state(dir: &std::path::Path) -> HashMap<String, u64> {
                 continue;
             }
             let key = path.to_string_lossy().to_string();
-            let mtime = path.metadata()
+            let mtime = path
+                .metadata()
                 .and_then(|m| m.modified())
                 .map(|t| {
                     t.duration_since(std::time::UNIX_EPOCH)
@@ -1226,11 +1337,16 @@ fn stop_workspace_watcher(state: &tauri::State<AppState>) {
 
 /// Start watching a workspace directory using simple polling.
 #[tauri::command]
-fn watch_workspace(app: AppHandle, state: tauri::State<AppState>, path: String) -> Result<(), String> {
+fn watch_workspace(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    path: String,
+) -> Result<(), String> {
     // Debug: write to log file
     let log_msg = format!("[watch_workspace] called with path: {}\n", path);
     let _ = fs::OpenOptions::new()
-        .create(true).append(true)
+        .create(true)
+        .append(true)
         .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
         .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
 
@@ -1240,7 +1356,8 @@ fn watch_workspace(app: AppHandle, state: tauri::State<AppState>, path: String) 
     if !watch_path.is_dir() {
         let log_msg = format!("[watch_workspace] NOT a directory: {}\n", path);
         let _ = fs::OpenOptions::new()
-            .create(true).append(true)
+            .create(true)
+            .append(true)
             .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
             .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
         return Err(format!("Not a directory: {}", path));
@@ -1255,10 +1372,14 @@ fn watch_workspace(app: AppHandle, state: tauri::State<AppState>, path: String) 
     let handle = std::thread::spawn(move || {
         let mut last_state = collect_dir_state(&watch_dir);
 
-        let log_msg = format!("[watch_workspace] Polling started for: {} ({} files)\n",
-            watch_dir.display(), last_state.len());
+        let log_msg = format!(
+            "[watch_workspace] Polling started for: {} ({} files)\n",
+            watch_dir.display(),
+            last_state.len()
+        );
         let _ = fs::OpenOptions::new()
-            .create(true).append(true)
+            .create(true)
+            .append(true)
             .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
             .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
 
@@ -1291,16 +1412,20 @@ fn watch_workspace(app: AppHandle, state: tauri::State<AppState>, path: String) 
 
             // Emit events for changes
             for (kind, path_str) in &changes {
-                let _ = app_clone.emit("fs-change", serde_json::json!({
-                    "path": path_str,
-                    "kind": kind,
-                }));
+                let _ = app_clone.emit(
+                    "fs-change",
+                    serde_json::json!({
+                        "path": path_str,
+                        "kind": kind,
+                    }),
+                );
             }
 
             if !changes.is_empty() {
                 let log_msg = format!("[watcher] {} changes detected\n", changes.len());
                 let _ = fs::OpenOptions::new()
-                    .create(true).append(true)
+                    .create(true)
+                    .append(true)
                     .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
                     .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
             }
@@ -1311,7 +1436,8 @@ fn watch_workspace(app: AppHandle, state: tauri::State<AppState>, path: String) 
 
     let log_msg = format!("[watch_workspace] NOW WATCHING: {}\n", path);
     let _ = fs::OpenOptions::new()
-        .create(true).append(true)
+        .create(true)
+        .append(true)
         .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
         .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
 
@@ -1332,7 +1458,8 @@ fn stop_watching(state: tauri::State<AppState>) {
 fn ping_test(msg: String) -> Result<String, String> {
     let log_msg = format!("[ping_test] received: {}\n", msg);
     let _ = fs::OpenOptions::new()
-        .create(true).append(true)
+        .create(true)
+        .append(true)
         .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
         .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
     Ok(format!("pong: {}", msg))
