@@ -109,11 +109,7 @@ durian --version
 For Windows PowerShell
 
 ```bash
-# Install durian
 irm https://raw.githubusercontent.com/gguf-org/durian/main/scripts/install.ps1 | iex
-
-# Verify
-durian --version
 ```
 
 ### Supported Providers

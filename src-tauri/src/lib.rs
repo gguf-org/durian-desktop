@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Seek, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -92,6 +93,122 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     result
+}
+
+fn executable_path_from_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    let candidate = dir.join(name);
+    if candidate.is_file() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn append_unique_path_dir(dirs: &mut Vec<PathBuf>, dir: impl Into<PathBuf>) {
+    let dir = dir.into();
+    if !dir.as_os_str().is_empty() && !dirs.iter().any(|existing| existing == &dir) {
+        dirs.push(dir);
+    }
+}
+
+fn durian_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            append_unique_path_dir(&mut dirs, dir);
+        }
+    }
+
+    if cfg!(target_os = "macos") {
+        append_unique_path_dir(&mut dirs, "/opt/homebrew/bin");
+        append_unique_path_dir(&mut dirs, "/usr/local/bin");
+        append_unique_path_dir(&mut dirs, "/usr/bin");
+        append_unique_path_dir(&mut dirs, "/bin");
+        append_unique_path_dir(&mut dirs, "/usr/sbin");
+        append_unique_path_dir(&mut dirs, "/sbin");
+
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            append_unique_path_dir(&mut dirs, home.join(".durian/bin"));
+            append_unique_path_dir(&mut dirs, home.join(".local/bin"));
+            append_unique_path_dir(&mut dirs, home.join("bin"));
+            append_unique_path_dir(&mut dirs, home.join(".npm-global/bin"));
+            append_unique_path_dir(&mut dirs, home.join(".cargo/bin"));
+            append_unique_path_dir(&mut dirs, home.join(".bun/bin"));
+        }
+    }
+
+    dirs
+}
+
+fn path_env_with_search_dirs(extra_dir: Option<&Path>) -> Option<std::ffi::OsString> {
+    let mut dirs = durian_search_dirs();
+    if let Some(dir) = extra_dir {
+        append_unique_path_dir(&mut dirs, dir);
+    }
+
+    std::env::join_paths(dirs).ok()
+}
+
+fn find_durian_in_login_shell() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+
+    let output = Command::new("/bin/zsh")
+        .arg("-lc")
+        .arg("command -v durian")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        return None;
+    }
+
+    let candidate = PathBuf::from(path);
+    if candidate.is_file() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn find_durian_executable() -> Option<PathBuf> {
+    for dir in durian_search_dirs() {
+        if let Some(path) = executable_path_from_dir(&dir, "durian") {
+            return Some(path);
+        }
+    }
+
+    find_durian_in_login_shell()
+}
+
+fn durian_command() -> Command {
+    let resolved_path = find_durian_executable();
+    let resolved_dir = resolved_path
+        .as_ref()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf);
+
+    let mut cmd = if let Some(path) = resolved_path {
+        Command::new(path)
+    } else {
+        Command::new("durian")
+    };
+
+    if let Some(path) = path_env_with_search_dirs(resolved_dir.as_deref()) {
+        cmd.env("PATH", path);
+    }
+
+    cmd
 }
 
 /// Get the durian config.yaml path
@@ -605,14 +722,14 @@ fn check_durian() -> bool {
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         suppress_console_window(&mut cmd);
-        cmd.status().map(|_| true).unwrap_or(false)
+        cmd.status().map(|status| status.success()).unwrap_or(false)
     } else {
-        let mut cmd = Command::new("durian");
+        let mut cmd = durian_command();
         cmd.arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         suppress_console_window(&mut cmd);
-        cmd.status().map(|_| true).unwrap_or(false)
+        cmd.status().map(|status| status.success()).unwrap_or(false)
     }
 }
 
@@ -732,7 +849,7 @@ fn run_durian_query(
 
         child
     } else {
-        let mut cmd = Command::new("durian");
+        let mut cmd = durian_command();
         cmd.args(&args)
             .env("NO_COLOR", "1")
             .env("FORCE_COLOR", "0")
