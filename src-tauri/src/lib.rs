@@ -1452,6 +1452,34 @@ fn stop_workspace_watcher(state: &tauri::State<AppState>) {
     }
 }
 
+fn watcher_log_path() -> PathBuf {
+    if cfg!(target_os = "windows") {
+        if let Some(base) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(base).join("durian-desktop-watcher.log");
+        }
+    } else if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("durian-desktop-watcher.log");
+    }
+
+    std::env::temp_dir().join("durian-desktop-watcher.log")
+}
+
+fn append_watcher_log(message: &str) {
+    let log_path = watcher_log_path();
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .and_then(|mut f| f.write_all(message.as_bytes()));
+}
+
 /// Start watching a workspace directory using simple polling.
 #[tauri::command]
 fn watch_workspace(
@@ -1461,22 +1489,14 @@ fn watch_workspace(
 ) -> Result<(), String> {
     // Debug: write to log file
     let log_msg = format!("[watch_workspace] called with path: {}\n", path);
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+    append_watcher_log(&log_msg);
 
     stop_workspace_watcher(&state);
 
     let watch_path = std::path::PathBuf::from(&path);
     if !watch_path.is_dir() {
         let log_msg = format!("[watch_workspace] NOT a directory: {}\n", path);
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-            .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+        append_watcher_log(&log_msg);
         return Err(format!("Not a directory: {}", path));
     }
 
@@ -1494,11 +1514,7 @@ fn watch_workspace(
             watch_dir.display(),
             last_state.len()
         );
-        let _ = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-            .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+        append_watcher_log(&log_msg);
 
         while !stop_thread.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(800));
@@ -1540,11 +1556,7 @@ fn watch_workspace(
 
             if !changes.is_empty() {
                 let log_msg = format!("[watcher] {} changes detected\n", changes.len());
-                let _ = fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-                    .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+                append_watcher_log(&log_msg);
             }
 
             last_state = current_state;
@@ -1552,11 +1564,7 @@ fn watch_workspace(
     });
 
     let log_msg = format!("[watch_workspace] NOW WATCHING: {}\n", path);
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+    append_watcher_log(&log_msg);
 
     let mut watcher_guard = state.watcher.lock().unwrap();
     *watcher_guard = Some(WorkspaceWatcher { stop, handle });
@@ -1574,11 +1582,7 @@ fn stop_watching(state: tauri::State<AppState>) {
 #[tauri::command]
 fn ping_test(msg: String) -> Result<String, String> {
     let log_msg = format!("[ping_test] received: {}\n", msg);
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("C:\\Users\\calcu\\AppData\\Local\\durian-desktop-watcher.log")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, log_msg.as_bytes()));
+    append_watcher_log(&log_msg);
     Ok(format!("pong: {}", msg))
 }
 
