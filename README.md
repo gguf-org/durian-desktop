@@ -154,7 +154,7 @@ The app supports all durian providers. Set your provider and API key in Settings
 | OpenAI | API key |
 | Google Gemini | API key |
 
-And 10+ more. See the [full provider list](https://durian.gguf-org.com).
+And 10+ more. See the [full provider list via the documentation](https://durian.gguf.org).
 
 ## License
 
