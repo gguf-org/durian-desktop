@@ -62,6 +62,7 @@ struct Settings {
 struct AppState {
     running: Mutex<HashMap<String, Child>>,
     watcher: Mutex<Option<WorkspaceWatcher>>,
+    durian_installing: Arc<AtomicBool>,
 }
 
 struct WorkspaceWatcher {
@@ -139,6 +140,22 @@ fn durian_search_dirs() -> Vec<PathBuf> {
         }
     }
 
+    if cfg!(target_os = "windows") {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            append_unique_path_dir(
+                &mut dirs,
+                PathBuf::from(local_app_data).join("durian").join("bin"),
+            );
+        }
+
+        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+            append_unique_path_dir(
+                &mut dirs,
+                PathBuf::from(user_profile).join(".durian").join("bin"),
+            );
+        }
+    }
+
     dirs
 }
 
@@ -183,8 +200,16 @@ fn find_durian_in_login_shell() -> Option<PathBuf> {
 
 fn find_durian_executable() -> Option<PathBuf> {
     for dir in durian_search_dirs() {
-        if let Some(path) = executable_path_from_dir(&dir, "durian") {
-            return Some(path);
+        let executable_names: &[&str] = if cfg!(target_os = "windows") {
+            &["durian.exe", "durian"]
+        } else {
+            &["durian"]
+        };
+
+        for &name in executable_names {
+            if let Some(path) = executable_path_from_dir(&dir, name) {
+                return Some(path);
+            }
         }
     }
 
@@ -712,25 +737,90 @@ fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivi
 
 // ── Durian commands ────────────────────────────────────────────────────
 
+fn durian_is_installed() -> bool {
+    let mut cmd = durian_command();
+    cmd.arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    suppress_console_window(&mut cmd);
+    cmd.status().map(|status| status.success()).unwrap_or(false)
+}
+
+fn install_durian() -> Result<(), String> {
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut command = Command::new("powershell.exe");
+        command
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg("irm https://raw.githubusercontent.com/gguf-org/durian/main/scripts/install.ps1 | iex");
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("/bin/bash");
+        command
+            .arg("-lc")
+            .arg("curl -fsSL https://raw.githubusercontent.com/gguf-org/durian/main/scripts/install.sh | bash");
+        command
+    } else {
+        return Err("Automatic durian installation is only supported on Windows and macOS.".into());
+    };
+
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    suppress_console_window(&mut cmd);
+
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to start durian installer: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Durian installer exited with status: {status}"))
+    }
+}
+
 #[tauri::command]
 fn check_durian() -> bool {
-    if cfg!(target_os = "windows") {
-        let mut cmd = Command::new("cmd.exe");
-        cmd.arg("/C")
-            .arg("durian")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        suppress_console_window(&mut cmd);
-        cmd.status().map(|status| status.success()).unwrap_or(false)
-    } else {
-        let mut cmd = durian_command();
-        cmd.arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        suppress_console_window(&mut cmd);
-        cmd.status().map(|status| status.success()).unwrap_or(false)
+    durian_is_installed()
+}
+
+#[tauri::command]
+fn ensure_durian_installed(app: AppHandle, state: tauri::State<AppState>) -> Result<bool, String> {
+    if durian_is_installed() {
+        return Ok(true);
     }
+
+    if state.durian_installing.swap(true, Ordering::Relaxed) {
+        return Ok(false);
+    }
+
+    let app_clone = app.clone();
+    let installing = state.durian_installing.clone();
+    std::thread::spawn(move || {
+        let _ = app_clone.emit(
+            "durian-install-status",
+            serde_json::json!({
+                "installing": true,
+                "available": false,
+                "message": "Installing durian..."
+            }),
+        );
+
+        let result = install_durian();
+        let available = durian_is_installed();
+        installing.store(false, Ordering::Relaxed);
+
+        let _ = app_clone.emit(
+            "durian-install-status",
+            serde_json::json!({
+                "installing": false,
+                "available": available,
+                "message": result.err().unwrap_or_default()
+            }),
+        );
+    });
+
+    Ok(false)
 }
 
 #[tauri::command]
@@ -835,6 +925,9 @@ fn run_durian_query(
             .arg(&bat_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        if let Some(path) = path_env_with_search_dirs(None) {
+            cmd.env("PATH", path);
+        }
         suppress_console_window(&mut cmd);
 
         let child = cmd.spawn().map_err(|e| {
@@ -1592,9 +1685,11 @@ pub fn run() {
         .manage(AppState {
             running: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),
+            durian_installing: Arc::new(AtomicBool::new(false)),
         })
         .invoke_handler(tauri::generate_handler![
             check_durian,
+            ensure_durian_installed,
             run_durian_query,
             stop_durian,
             save_session,

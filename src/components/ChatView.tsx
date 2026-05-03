@@ -27,6 +27,8 @@ interface Props {
   onStop: () => void
   onNewChat: () => void
   durianAvailable: boolean
+  durianInstalling: boolean
+  durianInstallMessage: string
   projectPath: string
   recentActivities: ToolActivity[]
 }
@@ -38,6 +40,8 @@ export default function ChatView({
   onStop,
   onNewChat,
   durianAvailable,
+  durianInstalling,
+  durianInstallMessage,
   projectPath,
   recentActivities,
 }: Props) {
@@ -123,13 +127,18 @@ export default function ChatView({
               An AI agent that gets better the more you use it — learns new
               skills, remembers context, and grows over time.
             </p>
-            {!durianAvailable && (
+            {durianInstalling && (
               <div className="welcome-warn">
-                <strong>durian not found</strong> — make sure it's installed and
-                in your PATH, then restart the app.
+                <strong>installing durian</strong> — this may take a minute.
               </div>
             )}
-            {durianAvailable && (
+            {!durianAvailable && !durianInstalling && (
+              <div className="welcome-warn">
+                <strong>durian not found</strong> — automatic install failed.
+                {durianInstallMessage ? ` ${durianInstallMessage}` : ''}
+              </div>
+            )}
+            {durianAvailable && !durianInstalling && (
               <div className="suggestions">
                 {SUGGESTIONS.map(s => (
                   <button
@@ -173,12 +182,12 @@ export default function ChatView({
         </div>
       )}
 
-      <InputArea
-        onSend={onSend}
-        onStop={onStop}
-        isRunning={isRunning}
-        disabled={!durianAvailable}
-      />
+        <InputArea
+          onSend={onSend}
+          onStop={onStop}
+          isRunning={isRunning}
+          disabled={!durianAvailable || durianInstalling}
+        />
     </main>
   )
 }

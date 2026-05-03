@@ -17,6 +17,12 @@ interface OutputChunk {
   done: boolean
 }
 
+interface DurianInstallStatus {
+  installing: boolean
+  available: boolean
+  message?: string
+}
+
 const DEFAULT_SETTINGS: Settings = {
   provider: '',
   endpoint: '',
@@ -37,6 +43,8 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [durianAvailable, setDurianAvailable] = useState(true)
+  const [durianInstalling, setDurianInstalling] = useState(false)
+  const [durianInstallMessage, setDurianInstallMessage] = useState('')
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [recentActivities, setRecentActivities] = useState<ToolActivity[]>([])
@@ -57,19 +65,50 @@ export default function App() {
     currentSessionIdRef.current = currentSessionId
   }, [currentSessionId])
 
-  // Load sessions and check durian on mount
+  // Load sessions and ensure durian is available on mount
   useEffect(() => {
+    let unlistenInstall: (() => void) | undefined
+    let cancelled = false
+
     invoke<Session[]>('load_sessions')
       .then(s => setSessions(s))
       .catch(console.error)
 
-    invoke<boolean>('check_durian')
-      .then(setDurianAvailable)
-      .catch(() => setDurianAvailable(false))
+    listen<DurianInstallStatus>('durian-install-status', event => {
+      if (cancelled) return
+      setDurianInstalling(event.payload.installing)
+      setDurianAvailable(event.payload.available)
+      setDurianInstallMessage(event.payload.message || '')
+    }).then(fn => {
+      if (cancelled) {
+        fn()
+      } else {
+        unlistenInstall = fn
+      }
+    })
+
+    invoke<boolean>('ensure_durian_installed')
+      .then(available => {
+        if (cancelled) return
+        setDurianAvailable(available)
+        setDurianInstalling(!available)
+      })
+      .catch(error => {
+        console.error(error)
+        if (cancelled) return
+        setDurianAvailable(false)
+        setDurianInstalling(false)
+        setDurianInstallMessage(String(error))
+      })
 
     invoke<Settings>('load_settings')
       .then(s => setSettings(s))
       .catch(console.error)
+
+    return () => {
+      cancelled = true
+      unlistenInstall?.()
+    }
   }, [])
 
   // Debounce-save session whenever messages change
@@ -358,6 +397,8 @@ export default function App() {
         onStop={handleStop}
         onNewChat={handleNewChat}
         durianAvailable={durianAvailable}
+        durianInstalling={durianInstalling}
+        durianInstallMessage={durianInstallMessage}
         projectPath={projectPath}
         recentActivities={recentActivities}
       />
