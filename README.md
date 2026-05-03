@@ -15,9 +15,9 @@ Built with [Tauri 2](https://v2.tauri.app/) (Rust + React/TypeScript).
 - Dark and light themes
 - Native folder picker for workspace selection
 
-# For developer/contributor(s)
+## For developer/contributor(s)
 
-## Prerequisites
+**Prerequisites**
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.77
@@ -25,7 +25,7 @@ Built with [Tauri 2](https://v2.tauri.app/) (Rust + React/TypeScript).
 - Windows: WebView2 (bundled with Windows 11, install separately on Windows 10)
 - Linux: `libwebkit2gtk-4.1-dev` and related GTK/WebKit packages
 
-## Development walkaround
+**Development walkaround**
 
 ```bash
 # Clone
