@@ -19,7 +19,7 @@ Built with [Tauri 2](https://v2.tauri.app/) (Rust + React/TypeScript).
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.77
-- [Durian](https://durian.gguf-org.com/docs/) installed and in PATH
+- [Durian](https://durian.gguf.org) installed and in PATH
 - Windows: WebView2 (bundled with Windows 11, install separately on Windows 10)
 - Linux: `libwebkit2gtk-4.1-dev` and related GTK/WebKit packages
 
@@ -38,30 +38,6 @@ npm run tauri:dev
 
 # Production build
 npm run tauri:build
-```
-
-## Building from WSL/macOS/Linux
-
-If you're developing on WSL targeting Windows, the build requires a few extra steps due to filesystem performance and cross-compilation:
-
-```bash
-# 1. Build frontend on Linux filesystem (much faster)
-mkdir -p /tmp/durian-desktop-build/src/components
-cp package.json vite.config.ts tsconfig*.json index.html /tmp/durian-desktop-build/
-cp -r src/* /tmp/durian-desktop-build/src/
-cd /tmp/durian-desktop-build
-npm install
-npm install @rolldown/binding-linux-x64-gnu   # required for Vite 8 on Linux
-npx vite build
-
-# 2. Copy frontend dist back
-rm -f /path/to/durian-desktop/dist/assets/*
-cp /tmp/durian-desktop-build/dist/assets/* /path/to/durian-desktop/dist/assets/
-cp /tmp/durian-desktop-build/dist/index.html /path/to/durian-desktop/dist/
-
-# 3. Build Rust backend for Windows
-cd /path/to/durian-desktop
-cargo.exe build --manifest-path src-tauri/Cargo.toml
 ```
 
 ## Project Structure
