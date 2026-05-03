@@ -128,6 +128,14 @@ The app supports all durian providers. Set your provider and API key in Settings
 
 And 10+ more. See the [full provider list via the documentation](https://durian.gguf.org).
 
+
+## Contributing
+
+1. Fork the repo (see steps in `For developer/contributor(s)` section above)
+2. Create a feature branch
+3. Write tests (optional)
+4. Submit a PR
+
 ## License
 
 MIT
