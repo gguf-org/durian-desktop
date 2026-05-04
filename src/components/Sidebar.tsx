@@ -48,8 +48,9 @@ export default function Sidebar({
   return (
     <aside className={`sidebar${isOpen ? '' : ' collapsed'}`}>
       <div className="sidebar-header">
-        <div className="sidebar-logo">✷</div>
+        <div className="sidebar-logo">𖦹</div>
         <span className="sidebar-title">durian ✷</span>
+        {/* <div className="sidebar-logo">✷</div> */}
         {/* <span className="sidebar-title">Durian</span> */}
         <button
           className="icon-btn"
