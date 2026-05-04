@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { Session, ToolActivity } from '../types'
+import type { Session, Settings, ToolActivity } from '../types'
 import MessageBubble from './MessageBubble'
 import InputArea from './InputArea'
 
@@ -31,6 +31,7 @@ interface Props {
   durianInstallMessage: string
   projectPath: string
   recentActivities: ToolActivity[]
+  settings: Settings
 }
 
 export default function ChatView({
@@ -44,6 +45,7 @@ export default function ChatView({
   durianInstallMessage,
   projectPath,
   recentActivities,
+  settings,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
@@ -187,6 +189,7 @@ export default function ChatView({
           onStop={onStop}
           isRunning={isRunning}
           disabled={!durianAvailable || durianInstalling}
+          settings={settings}
         />
     </main>
   )

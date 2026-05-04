@@ -401,6 +401,7 @@ export default function App() {
         durianInstallMessage={durianInstallMessage}
         projectPath={projectPath}
         recentActivities={recentActivities}
+        settings={settings}
       />
       {settingsOpen && (
         <SettingsPage
