@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Durian",
+        "title": "durian",
         "width": 1080,
         "height": 720,
         "minWidth": 640,

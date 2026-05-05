@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Session, Theme, Settings } from '../types'
+import { version } from '../../package.json'
 import WorkspacePicker from './WorkspacePicker'
 
 interface Props {
@@ -161,7 +162,7 @@ export default function Sidebar({
         </button>
         <div className="sidebar-footer-spacer" />
         <span style={{ fontSize: 10, color: 'var(--text-faint)', paddingRight: 2 }}>
-          {isOpen ? 'v0.1' : ''}
+          {isOpen ? `v${version}` : ''}
         </span>
       </div>
     </aside>
