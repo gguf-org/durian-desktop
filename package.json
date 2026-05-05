@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build-dmg": "node scripts/clean-tauri-dmg.mjs && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.0",
