@@ -80,6 +80,155 @@
   --shadow: rgba(101, 71, 36, 0.14);
 }
 
+[data-theme="pixel"] {
+  color-scheme: dark;
+  --bg: #050505;
+  --page-gradient: #050505;
+  --sidebar-bg: #0b0b0b;
+  --surface: #101010;
+  --surface-2: #181818;
+  --surface-strong: #141414;
+  --border: #303030;
+  --border-strong: #6f6f6f;
+  --text: #e7e7e7;
+  --text-muted: #a7a7a7;
+  --text-faint: #6d6d6d;
+  --heading: #ffffff;
+  --accent: #d7d7d7;
+  --accent-strong: #ffffff;
+  --accent-dim: rgba(255, 255, 255, 0.08);
+  --accent-hover: #ffffff;
+  --user-bubble: #191919;
+  --user-bubble-border: #626262;
+  --assist-bubble: #0f0f0f;
+  --assist-bubble-border: #2d2d2d;
+  --danger: #eeeeee;
+  --danger-dim: rgba(255, 255, 255, 0.08);
+  --success: #d2d2d2;
+  --input-bg: #080808;
+  --input-border: #363636;
+  --scrollbar: #2f2f2f;
+  --scrollbar-hover: #707070;
+  --code-bg: #050505;
+  --code-border: #343434;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --font-body: "Cascadia Code", "SFMono-Regular", "Consolas", monospace;
+  --font-display: "Cascadia Code", "SFMono-Regular", "Consolas", monospace;
+  --font-mono: "Cascadia Code", "SFMono-Regular", "Consolas", monospace;
+}
+
+[data-theme="pixel"] #app {
+  padding: 10px;
+  gap: 10px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    var(--page-gradient);
+  background-size: 12px 12px;
+}
+
+[data-theme="pixel"] #app::before {
+  display: none;
+}
+
+[data-theme="pixel"] .sidebar,
+[data-theme="pixel"] .main,
+[data-theme="pixel"] .message-bubble,
+[data-theme="pixel"] .input-bar,
+[data-theme="pixel"] .settings-panel,
+[data-theme="pixel"] .workspace-picker,
+[data-theme="pixel"] .workspace-browser-modal,
+[data-theme="pixel"] .approval-panel {
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  background: var(--surface);
+}
+
+[data-theme="pixel"] .sidebar {
+  background: var(--sidebar-bg);
+}
+
+[data-theme="pixel"] .sidebar-logo,
+[data-theme="pixel"] .message-avatar.assistant,
+[data-theme="pixel"] .welcome-logo,
+[data-theme="pixel"] .send-btn,
+[data-theme="pixel"] .sidebar-new-btn {
+  border-radius: 0;
+  background: #e7e7e7;
+  color: #050505;
+  box-shadow: none;
+}
+
+[data-theme="pixel"] .icon-btn,
+[data-theme="pixel"] .session-item,
+[data-theme="pixel"] .session-icon,
+[data-theme="pixel"] .suggestion-chip,
+[data-theme="pixel"] .meta-select,
+[data-theme="pixel"] .meta-icon-btn,
+[data-theme="pixel"] .toolset-popover,
+[data-theme="pixel"] .approval-btn,
+[data-theme="pixel"] .approval-other input,
+[data-theme="pixel"] .msg-code-block,
+[data-theme="pixel"] .msg-inline-code,
+[data-theme="pixel"] .stop-btn {
+  border-radius: 0;
+}
+
+[data-theme="pixel"] .sidebar-title,
+[data-theme="pixel"] .chat-header-title,
+[data-theme="pixel"] .welcome h2 {
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+[data-theme="pixel"] .sidebar-section-label,
+[data-theme="pixel"] .approval-kicker {
+  color: var(--text-muted);
+}
+
+[data-theme="pixel"] .session-item:hover,
+[data-theme="pixel"] .session-item.active,
+[data-theme="pixel"] .icon-btn:hover,
+[data-theme="pixel"] .suggestion-chip:hover {
+  background: #1d1d1d;
+  color: var(--heading);
+  transform: none;
+}
+
+[data-theme="pixel"] .session-item.active::before {
+  background: #ffffff;
+  border-radius: 0;
+}
+
+[data-theme="pixel"] .chat-header,
+[data-theme="pixel"] .input-area,
+[data-theme="pixel"] .sidebar-header,
+[data-theme="pixel"] .sidebar-footer {
+  background: #0b0b0b;
+}
+
+[data-theme="pixel"] .message-row.user .message-bubble {
+  border-bottom-right-radius: 0;
+}
+
+[data-theme="pixel"] .message-row.assistant .message-bubble {
+  border-bottom-left-radius: 0;
+}
+
+[data-theme="pixel"] .live-status-bar,
+[data-theme="pixel"] .inline-activity,
+[data-theme="pixel"] .chat-header-model {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+[data-theme="pixel"] .activity-pulse,
+[data-theme="pixel"] .status-dot {
+  border-radius: 0;
+  background: #ffffff;
+}
+
 /* ── App Shell ── */
 #app {
   display: flex;
@@ -356,6 +505,97 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.approval-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--heading);
+}
+
+.approval-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.approval-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f59e0b;
+}
+
+.approval-command {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.approval-btn {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 12px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.approval-btn.allow {
+  border-color: rgba(125, 211, 168, 0.5);
+  color: var(--success);
+}
+
+.approval-btn.reject {
+  border-color: rgba(255, 123, 123, 0.5);
+  color: var(--danger);
+}
+
+.approval-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.approval-other {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.approval-other input {
+  width: min(240px, 26vw);
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 9px;
+  outline: none;
+}
+
+.approval-other input:focus {
+  border-color: #f59e0b;
 }
 
 
@@ -777,6 +1017,15 @@
 }
 
 @media (max-width: 640px) {
+  .approval-panel,
+  .approval-actions,
+  .approval-other {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .approval-other input {
+    width: 100%;
+  }
   .input-area {
     padding: 12px;
   }

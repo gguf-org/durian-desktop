@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import type { Session, Settings, ToolActivity } from '../types'
+import { useEffect, useRef, useState } from 'react'
+import type { Session, Settings, ToolActivity, ApprovalRequest, ApprovalChoice } from '../types'
 import MessageBubble from './MessageBubble'
 import InputArea from './InputArea'
 
@@ -32,6 +32,8 @@ interface Props {
   projectPath: string
   recentActivities: ToolActivity[]
   settings: Settings
+  approvalRequest: ApprovalRequest | null
+  onApprovalResponse: (choice: ApprovalChoice, response?: string) => void
 }
 
 export default function ChatView({
@@ -46,7 +48,10 @@ export default function ChatView({
   projectPath,
   recentActivities,
   settings,
+  approvalRequest,
+  onApprovalResponse,
 }: Props) {
+  const [approvalText, setApprovalText] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
 
@@ -119,6 +124,51 @@ export default function ChatView({
           </div>
         )}
       </div>
+
+      {approvalRequest && (
+        <div className="approval-panel">
+          <div className="approval-main">
+            <div className="approval-kicker">Dangerous command</div>
+            <div className="approval-command" title={approvalRequest.command}>
+              {approvalRequest.command || approvalRequest.detail}
+            </div>
+          </div>
+          <div className="approval-actions">
+            <button
+              className="approval-btn allow"
+              type="button"
+              onClick={() => onApprovalResponse('allow')}
+            >
+              Allow
+            </button>
+            <button
+              className="approval-btn reject"
+              type="button"
+              onClick={() => onApprovalResponse('reject')}
+            >
+              Reject
+            </button>
+            <form
+              className="approval-other"
+              onSubmit={e => {
+                e.preventDefault()
+                if (!approvalText.trim()) return
+                onApprovalResponse('other', approvalText.trim())
+                setApprovalText('')
+              }}
+            >
+              <input
+                value={approvalText}
+                onChange={e => setApprovalText(e.target.value)}
+                placeholder="Do something else..."
+              />
+              <button className="approval-btn" type="submit" disabled={!approvalText.trim()}>
+                Send
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {messages.length === 0 ? (
         <div className="messages-area">

@@ -29,6 +29,12 @@ function formatDate(ts: number) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+function getThemeTitle(theme: Theme) {
+  if (theme === 'dark') return 'Switch to light theme'
+  if (theme === 'light') return 'Switch to pixel theme'
+  return 'Switch to dark theme'
+}
+
 export default function Sidebar({
   sessions,
   currentSessionId,
@@ -147,12 +153,16 @@ export default function Sidebar({
         <button
           className="icon-btn"
           onClick={onToggleTheme}
-          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          title={getThemeTitle(theme)}
         >
           {theme === 'dark' ? (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.4" />
               <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M11.89 3.05l-1.06 1.06M3.05 11.89l1.06 1.06" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          ) : theme === 'light' ? (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2.5 2.5h11v11h-11v-11zM5 5h2v2H5V5zM9 5h2v2H9V5zM5 9h6v2H5V9z" stroke="currentColor" strokeWidth="1.2" shapeRendering="crispEdges" />
             </svg>
           ) : (
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

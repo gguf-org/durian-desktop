@@ -63,6 +63,7 @@ struct AppState {
     running: Mutex<HashMap<String, Child>>,
     watcher: Mutex<Option<WorkspaceWatcher>>,
     durian_installing: Arc<AtomicBool>,
+    pending_approvals: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 struct WorkspaceWatcher {
@@ -94,6 +95,71 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     result
+}
+
+fn looks_like_dangerous_approval(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("dangerous command")
+        || lower.contains("approval")
+            && lower.contains("command")
+            && (lower.contains("allow") || lower.contains("deny") || lower.contains("reject"))
+}
+
+fn extract_approval_command(text: &str) -> String {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let lower = trimmed.to_lowercase();
+        if lower.contains("dangerous command")
+            || lower.contains("approval")
+            || lower.contains("allow")
+            || lower.contains("deny")
+            || lower.contains("reject")
+            || lower.contains("timeout")
+        {
+            continue;
+        }
+        return trimmed.trim_matches('`').trim().to_string();
+    }
+
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("Awaiting command approval")
+        .to_string()
+}
+
+fn emit_approval_request(
+    app: &AppHandle,
+    id: &str,
+    text: &str,
+    pending_approvals: &Arc<Mutex<HashMap<String, bool>>>,
+) {
+    if !looks_like_dangerous_approval(text) {
+        return;
+    }
+
+    let mut pending = pending_approvals.lock().unwrap();
+    if pending.get(id).copied().unwrap_or(false) {
+        return;
+    }
+    pending.insert(id.to_string(), true);
+    drop(pending);
+
+    let _ = app.emit(
+        "durian-approval-request",
+        serde_json::json!({
+            "id": id,
+            "command": extract_approval_command(text),
+            "detail": text.trim(),
+            "timestamp": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        }),
+    );
 }
 
 fn executable_path_from_dir(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -912,7 +978,6 @@ fn run_durian_query(
                 bat_cmd.push_str(&format!(" {}", arg));
             }
         }
-        bat_cmd.push_str(" 2>NUL");
         bat_lines.push(bat_cmd);
 
         let temp_dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Temp".into());
@@ -924,7 +989,8 @@ fn run_durian_query(
         cmd.arg("/C")
             .arg(&bat_path)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped())
+            .stdin(Stdio::piped());
         if let Some(path) = path_env_with_search_dirs(None) {
             cmd.env("PATH", path);
         }
@@ -949,7 +1015,8 @@ fn run_durian_query(
             .env("TERM", "dumb")
             .env("PYTHONIOENCODING", "utf-8")
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .stdin(Stdio::piped());
 
         if let Some(ref cwd) = project_path {
             cmd.current_dir(cwd);
@@ -964,12 +1031,14 @@ fn run_durian_query(
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take();
+    let pending_approvals = state.pending_approvals.clone();
 
     state.running.lock().unwrap().insert(id.clone(), child);
 
     // Read stdout line-by-line, emit as durian-output events
     let app_out = app.clone();
     let id_out = id.clone();
+    let pending_stdout = pending_approvals.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
@@ -977,6 +1046,7 @@ fn run_durian_query(
                 Ok(l) => {
                     let clean = strip_ansi(&l);
                     let trimmed = clean.trim();
+                    emit_approval_request(&app_out, &id_out, trimmed, &pending_stdout);
                     if !trimmed.is_empty() && !trimmed.starts_with("session_id:") {
                         app_out
                             .emit(
@@ -1009,12 +1079,14 @@ fn run_durian_query(
     if let Some(stderr) = stderr {
         let app_err = app.clone();
         let id_err = id.clone();
+        let pending_stderr = pending_approvals.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 if let Ok(err_line) = line {
                     let clean = strip_ansi(&err_line);
                     let trimmed = clean.trim();
+                    emit_approval_request(&app_err, &id_err, trimmed, &pending_stderr);
                     if !trimmed.is_empty()
                         && (trimmed.contains("Error")
                             || trimmed.contains("error")
@@ -1305,6 +1377,44 @@ fn stop_durian(state: tauri::State<AppState>, id: String) {
     if let Some(mut child) = state.running.lock().unwrap().remove(&id) {
         child.kill().ok();
     }
+    state.pending_approvals.lock().unwrap().remove(&id);
+}
+
+#[tauri::command]
+fn respond_durian_approval(
+    state: tauri::State<AppState>,
+    id: String,
+    choice: String,
+    response: Option<String>,
+) -> Result<(), String> {
+    let mut running = state.running.lock().unwrap();
+    let child = running
+        .get_mut(&id)
+        .ok_or_else(|| "No running durian process for this approval".to_string())?;
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "Durian process is not accepting input".to_string())?;
+
+    let answer = match choice.as_str() {
+        // Hermes/Durian approval flows commonly accept these canonical choices.
+        "allow" => "once".to_string(),
+        "reject" => "deny".to_string(),
+        "other" => response
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or_else(|| "deny".to_string()),
+        other => other.to_string(),
+    };
+
+    stdin
+        .write_all(format!("{answer}\n").as_bytes())
+        .map_err(|e| format!("Failed to write approval response: {e}"))?;
+    stdin
+        .flush()
+        .map_err(|e| format!("Failed to flush approval response: {e}"))?;
+
+    state.pending_approvals.lock().unwrap().remove(&id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1686,12 +1796,14 @@ pub fn run() {
             running: Mutex::new(HashMap::new()),
             watcher: Mutex::new(None),
             durian_installing: Arc::new(AtomicBool::new(false)),
+            pending_approvals: Arc::new(Mutex::new(HashMap::new())),
         })
         .invoke_handler(tauri::generate_handler![
             check_durian,
             ensure_durian_installed,
             run_durian_query,
             stop_durian,
+            respond_durian_approval,
             save_session,
             load_sessions,
             delete_session,

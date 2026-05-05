@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import './App.css'
-import type { Session, Message, Theme, Settings, ToolActivity } from './types'
+import type { Session, Message, Theme, Settings, ToolActivity, ApprovalRequest, ApprovalChoice } from './types'
 import Sidebar from './components/Sidebar'
 import ChatView from './components/ChatView'
 import SettingsPage from './components/SettingsPage'
@@ -48,6 +48,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [recentActivities, setRecentActivities] = useState<ToolActivity[]>([])
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
 
   const currentSessionIdRef = useRef<string | null>(null)
   const currentQueryIdRef = useRef<string | null>(null)
@@ -111,6 +112,28 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let cancelled = false
+
+    listen<ApprovalRequest>('durian-approval-request', event => {
+      if (cancelled) return
+      if (event.payload.id !== currentQueryIdRef.current) return
+      setApprovalRequest(event.payload)
+    }).then(fn => {
+      if (cancelled) {
+        fn()
+      } else {
+        unlisten = fn
+      }
+    })
+
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [])
+
   // Debounce-save session whenever messages change
   useEffect(() => {
     if (!currentSession || currentSession.messages.length === 0) return
@@ -133,6 +156,7 @@ export default function App() {
       if (done) {
         setIsRunning(false)
         currentQueryIdRef.current = null
+        setApprovalRequest(null)
         return
       }
 
@@ -309,6 +333,7 @@ export default function App() {
 
       setIsRunning(true)
       setRecentActivities([])
+      setApprovalRequest(null)
 
       try {
         await invoke('run_durian_query', {
@@ -320,6 +345,7 @@ export default function App() {
       } catch (e) {
         setIsRunning(false)
         currentQueryIdRef.current = null
+        setApprovalRequest(null)
         const errMsg: Message = {
           id: genId(),
           role: 'assistant',
@@ -341,8 +367,27 @@ export default function App() {
       invoke('stop_durian', { id: currentQueryIdRef.current }).catch(console.error)
       setIsRunning(false)
       currentQueryIdRef.current = null
+      setApprovalRequest(null)
     }
   }, [])
+
+  const handleApprovalResponse = useCallback(
+    async (choice: ApprovalChoice, response?: string) => {
+      const request = approvalRequest
+      if (!request) return
+      setApprovalRequest(null)
+      try {
+        await invoke('respond_durian_approval', {
+          id: request.id,
+          choice,
+          response: response || null,
+        })
+      } catch (e) {
+        console.error('Failed to respond to approval request:', e)
+      }
+    },
+    [approvalRequest]
+  )
 
   const handleDeleteSession = useCallback(async (id: string) => {
     await invoke('delete_session', { id }).catch(console.error)
@@ -370,7 +415,11 @@ export default function App() {
   }, [])
 
   const toggleTheme = useCallback(() => {
-    setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+    setTheme(t => {
+      if (t === 'dark') return 'light'
+      if (t === 'light') return 'pixel'
+      return 'dark'
+    })
   }, [])
 
   return (
@@ -402,6 +451,8 @@ export default function App() {
         projectPath={projectPath}
         recentActivities={recentActivities}
         settings={settings}
+        approvalRequest={approvalRequest}
+        onApprovalResponse={handleApprovalResponse}
       />
       {settingsOpen && (
         <SettingsPage

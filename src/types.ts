@@ -18,6 +18,15 @@ export interface ToolActivity {
   path?: string   // file path, URL, or command being operated on
 }
 
+export type ApprovalChoice = 'allow' | 'reject' | 'other'
+
+export interface ApprovalRequest {
+  id: string
+  command: string
+  detail: string
+  timestamp: number
+}
+
 export interface Session {
   id: string
   title: string
@@ -25,7 +34,7 @@ export interface Session {
   messages: Message[]
 }
 
-export type Theme = 'dark' | 'light'
+export type Theme = 'dark' | 'light' | 'pixel'
 
 export interface Workspace {
   id: string
