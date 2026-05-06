@@ -130,6 +130,13 @@ The app supports all durian providers. Set your provider and API key in Settings
 
 And 10+ more. See the [full provider list via the documentation](https://durian.gguf.org).
 
+## Troubleshooting
+Warning: [timestamp] agent.prompt_builder: Context file SOUL.md blocked: invisible unicode U+FEFF
+
+Solved by saving the SOUL.md as UTF-8
+1. Open SOUL.md
+2. Choose Save with Encoding
+3. Pick UTF-8, not UTF-8 with BOM
 
 ## Contributing
 
