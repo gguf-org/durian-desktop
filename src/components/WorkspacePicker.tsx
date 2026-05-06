@@ -10,12 +10,6 @@ interface Props {
   onFileSelect?: (path: string) => void
 }
 
-function normalizePath(path: string): string {
-  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  const wslMatch = normalized.match(/^\/mnt\/([a-z])\/(.*)$/)
-  return wslMatch ? `${wslMatch[1]}:/${wslMatch[2]}` : normalized
-}
-
 // Simple file icon based on extension
 function FileIcon({ name, isDir, expanded }: { name: string; isDir: boolean; expanded: boolean }) {
   if (isDir) {
@@ -159,37 +153,36 @@ function WorkspaceItem({
   latestChange: { path: string; kind: string } | null
 }) {
   const [entries, setEntries] = useState<FileEntry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [firstLoading, setFirstLoading] = useState(false)
+  const hasLoadedRef = useRef(false)
 
   const loadEntries = useCallback(async () => {
-    setLoading(true)
+    // Only show the loading overlay on the very first fetch so that subsequent
+    // silent background refreshes don't tear down and remount the tree nodes.
+    const isFirst = !hasLoadedRef.current
+    if (isFirst) setFirstLoading(true)
     try {
       const result = await invoke<FileEntry[]>('list_dir', { path: workspace.path })
       setEntries(result)
-      setLoaded(true)
+      hasLoadedRef.current = true
     } catch (e) {
       console.error('Failed to refresh:', e)
     }
-    setLoading(false)
+    if (isFirst) setFirstLoading(false)
   }, [workspace.path])
 
   const handleExpand = useCallback(async () => {
     onToggleExpand()
-    if (!isExpanded && !loaded) {
+    if (!isExpanded) {
       await loadEntries()
     }
-  }, [isExpanded, loaded, onToggleExpand, loadEntries])
+  }, [isExpanded, onToggleExpand, loadEntries])
 
-  // Re-fetch when refreshStamp changes and we're expanded
+  // Re-fetch whenever refreshStamp changes and the panel is expanded
   useEffect(() => {
-    if (isExpanded) {
-      const timer = setTimeout(() => {
-        loadEntries()
-      }, 0)
-      return () => clearTimeout(timer)
-    }
-  }, [isExpanded, loadEntries, refreshStamp])
+    if (isExpanded) loadEntries()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshStamp])
 
   return (
     <div className={`ws-item${isActive ? ' active' : ''}`}>
@@ -233,8 +226,8 @@ function WorkspaceItem({
               </svg>
             </button>
           </div>
-          {loading && <div className="tree-loading-text">Loading...</div>}
-          {!loading && entries.map(entry => (
+          {firstLoading && <div className="tree-loading-text">Loading...</div>}
+          {entries.map(entry => (
             <TreeNode
               key={entry.path}
               entry={entry}
@@ -261,33 +254,19 @@ export default function WorkspacePicker({ settings, onSettingsUpdate, onFileSele
   const [latestChange, setLatestChange] = useState<{ path: string; kind: string } | null>(null)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentWorkspaceIdRef = useRef(settings.currentWorkspaceId)
-  const currentWorkspacePathRef = useRef('')
 
   useEffect(() => {
     currentWorkspaceIdRef.current = settings.currentWorkspaceId
-    currentWorkspacePathRef.current =
-      settings.workspaces.find(w => w.id === settings.currentWorkspaceId)?.path || ''
-  }, [settings.currentWorkspaceId, settings.workspaces])
+  }, [settings.currentWorkspaceId])
 
   // Start/stop the filesystem watcher when the active workspace changes
   useEffect(() => {
-    // Test command to verify backend is reachable
-    invoke<string>('ping_test', { msg: 'workspace-picker-mounted' }).then(r => {
-      console.log('[WorkspacePicker] ping_test response:', r)
-    }).catch(e => {
-      console.error('[WorkspacePicker] ping_test failed:', e)
-    })
-
     const ws = settings.workspaces.find(w => w.id === settings.currentWorkspaceId)
     if (ws && ws.path) {
-      console.log('[WorkspacePicker] Starting watcher for:', ws.path)
-      invoke('watch_workspace', { path: ws.path }).then(() => {
-        console.log('[WorkspacePicker] Watcher started successfully')
-      }).catch(e => {
+      invoke('watch_workspace', { path: ws.path }).catch(e => {
         console.error('[WorkspacePicker] Failed to start watcher:', e)
       })
     } else {
-      console.log('[WorkspacePicker] No workspace, stopping watcher')
       invoke('stop_watching').catch(() => {})
     }
 
@@ -296,6 +275,13 @@ export default function WorkspacePicker({ settings, onSettingsUpdate, onFileSele
     }
   }, [settings.currentWorkspaceId, settings.workspaces])
 
+  // Fallback: poll every 1.5s so the tree stays current even when OS events
+  // don't fire (e.g. WSL2 filesystem changes not seen by ReadDirectoryChangesW).
+  useEffect(() => {
+    const id = setInterval(() => setRefreshStamp(s => s + 1), 1500)
+    return () => clearInterval(id)
+  }, [])
+
   // Listen for fs-change events and debounce-refresh
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -303,14 +289,6 @@ export default function WorkspacePicker({ settings, onSettingsUpdate, onFileSele
 
     listen<{ path: string; kind: string }>('fs-change', event => {
       if (cancelled) return
-      const currentWorkspacePath = currentWorkspacePathRef.current
-      if (!currentWorkspacePath) return
-      const eventPath = normalizePath(event.payload.path)
-      const workspacePath = normalizePath(currentWorkspacePath)
-      if (eventPath !== workspacePath && !eventPath.startsWith(workspacePath + '/')) {
-        return
-      }
-
       setLatestChange(event.payload)
       // Debounce: wait 300ms after the last event before refreshing
       if (debounceTimer.current) clearTimeout(debounceTimer.current)

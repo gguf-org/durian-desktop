@@ -8,6 +8,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use tauri::{AppHandle, Emitter, Manager};
+use notify::Watcher;
 
 #[cfg(windows)]
 fn suppress_console_window(command: &mut Command) {
@@ -67,8 +68,7 @@ struct AppState {
 }
 
 struct WorkspaceWatcher {
-    stop: Arc<AtomicBool>,
-    handle: std::thread::JoinHandle<()>,
+    _watcher: notify::RecommendedWatcher,
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -1605,13 +1605,46 @@ fn switch_workspace(app: AppHandle, workspace_id: String) -> Result<Settings, St
     Ok(settings)
 }
 
-/// Start watching a workspace directory for file changes.
-/// Helper: recursively collect file paths and modification times
-fn collect_dir_state(dir: &std::path::Path) -> HashMap<String, u64> {
-    let mut result = HashMap::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
+
+fn stop_workspace_watcher(state: &tauri::State<AppState>) {
+    let mut watcher_guard = state.watcher.lock().unwrap();
+    *watcher_guard = None; // Dropping RecommendedWatcher stops watching automatically
+}
+
+
+/// Start watching a workspace directory using OS-level file system events.
+#[tauri::command]
+fn watch_workspace(
+    app: AppHandle,
+    state: tauri::State<AppState>,
+    path: String,
+) -> Result<(), String> {
+    stop_workspace_watcher(&state);
+
+    let watch_path = std::path::PathBuf::from(&path);
+    if !watch_path.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+
+    let app_clone = app.clone();
+
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let event = match res {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("[watcher] error: {e:?}");
+                return;
+            }
+        };
+
+        let kind_str = match event.kind {
+            notify::EventKind::Create(_) => "create",
+            notify::EventKind::Modify(_) => "modify",
+            notify::EventKind::Remove(_) => "remove",
+            _ => return,
+        };
+
+        for path in &event.paths {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name.starts_with('.')
                 || name.ends_with(".tmp")
@@ -1622,155 +1655,23 @@ fn collect_dir_state(dir: &std::path::Path) -> HashMap<String, u64> {
             {
                 continue;
             }
-            let key = path.to_string_lossy().to_string();
-            let mtime = path
-                .metadata()
-                .and_then(|m| m.modified())
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0)
-                })
-                .unwrap_or(0);
-            result.insert(key, mtime);
-            if path.is_dir() {
-                for (k, v) in collect_dir_state(&path) {
-                    result.insert(k, v);
-                }
-            }
+            let _ = app_clone.emit(
+                "fs-change",
+                serde_json::json!({
+                    "path": path.to_string_lossy(),
+                    "kind": kind_str,
+                }),
+            );
         }
-    }
-    result
-}
+    })
+    .map_err(|e| format!("Failed to create watcher: {e}"))?;
 
-fn stop_workspace_watcher(state: &tauri::State<AppState>) {
-    let watcher = {
-        let mut watcher_guard = state.watcher.lock().unwrap();
-        watcher_guard.take()
-    };
-
-    if let Some(watcher) = watcher {
-        watcher.stop.store(true, Ordering::Relaxed);
-        let _ = watcher.handle.join();
-    }
-}
-
-fn watcher_log_path() -> PathBuf {
-    if cfg!(target_os = "windows") {
-        if let Some(base) = std::env::var_os("LOCALAPPDATA") {
-            return PathBuf::from(base).join("durian-desktop-watcher.log");
-        }
-    } else if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("durian-desktop-watcher.log");
-    }
-
-    std::env::temp_dir().join("durian-desktop-watcher.log")
-}
-
-fn append_watcher_log(message: &str) {
-    let log_path = watcher_log_path();
-    if let Some(parent) = log_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .and_then(|mut f| f.write_all(message.as_bytes()));
-}
-
-/// Start watching a workspace directory using simple polling.
-#[tauri::command]
-fn watch_workspace(
-    app: AppHandle,
-    state: tauri::State<AppState>,
-    path: String,
-) -> Result<(), String> {
-    // Debug: write to log file
-    let log_msg = format!("[watch_workspace] called with path: {}\n", path);
-    append_watcher_log(&log_msg);
-
-    stop_workspace_watcher(&state);
-
-    let watch_path = std::path::PathBuf::from(&path);
-    if !watch_path.is_dir() {
-        let log_msg = format!("[watch_workspace] NOT a directory: {}\n", path);
-        append_watcher_log(&log_msg);
-        return Err(format!("Not a directory: {}", path));
-    }
-
-    let app_clone = app.clone();
-    let watch_dir = watch_path.clone();
-    let stop = Arc::new(AtomicBool::new(false));
-    let stop_thread = stop.clone();
-
-    // Spawn a polling thread
-    let handle = std::thread::spawn(move || {
-        let mut last_state = collect_dir_state(&watch_dir);
-
-        let log_msg = format!(
-            "[watch_workspace] Polling started for: {} ({} files)\n",
-            watch_dir.display(),
-            last_state.len()
-        );
-        append_watcher_log(&log_msg);
-
-        while !stop_thread.load(Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_millis(800));
-            if stop_thread.load(Ordering::Relaxed) {
-                break;
-            }
-
-            let current_state = collect_dir_state(&watch_dir);
-
-            // Find changes
-            let mut changes = Vec::new();
-
-            // New or modified files
-            for (path, mtime) in &current_state {
-                match last_state.get(path) {
-                    None => changes.push(("create", path.clone())),
-                    Some(old_mtime) if old_mtime != mtime => changes.push(("modify", path.clone())),
-                    _ => {}
-                }
-            }
-
-            // Deleted files
-            for path in last_state.keys() {
-                if !current_state.contains_key(path) {
-                    changes.push(("remove", path.clone()));
-                }
-            }
-
-            // Emit events for changes
-            for (kind, path_str) in &changes {
-                let _ = app_clone.emit(
-                    "fs-change",
-                    serde_json::json!({
-                        "path": path_str,
-                        "kind": kind,
-                    }),
-                );
-            }
-
-            if !changes.is_empty() {
-                let log_msg = format!("[watcher] {} changes detected\n", changes.len());
-                append_watcher_log(&log_msg);
-            }
-
-            last_state = current_state;
-        }
-    });
-
-    let log_msg = format!("[watch_workspace] NOW WATCHING: {}\n", path);
-    append_watcher_log(&log_msg);
+    watcher
+        .watch(&watch_path, notify::RecursiveMode::Recursive)
+        .map_err(|e| format!("Failed to start watching {path}: {e}"))?;
 
     let mut watcher_guard = state.watcher.lock().unwrap();
-    *watcher_guard = Some(WorkspaceWatcher { stop, handle });
+    *watcher_guard = Some(WorkspaceWatcher { _watcher: watcher });
 
     Ok(())
 }
@@ -1784,8 +1685,6 @@ fn stop_watching(state: tauri::State<AppState>) {
 /// Test command to verify frontend-backend communication
 #[tauri::command]
 fn ping_test(msg: String) -> Result<String, String> {
-    let log_msg = format!("[ping_test] received: {}\n", msg);
-    append_watcher_log(&log_msg);
     Ok(format!("pong: {}", msg))
 }
 
