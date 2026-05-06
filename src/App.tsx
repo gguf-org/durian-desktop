@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() =>
-    (localStorage.getItem('theme') as Theme) || 'dark'
+    (localStorage.getItem('theme') as Theme) || 'pixel'
   )
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
