@@ -566,6 +566,53 @@ struct ToolActivityInfo {
     path: String,              // file path, URL, command, or key info
 }
 
+/// Build an optional codeChange payload for write_file and patch tool calls.
+fn build_code_change(tool_name: &str, args: &serde_json::Value) -> Option<serde_json::Value> {
+    match tool_name {
+        "write_file" => {
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            if path.is_empty() {
+                return None;
+            }
+            let content = args.get("content").and_then(|c| c.as_str()).unwrap_or("");
+            // Limit content size sent over the event bus
+            let content: &str = if content.len() > 60_000 { &content[..60_000] } else { content };
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path);
+            Some(serde_json::json!({
+                "kind": "write",
+                "path": path,
+                "title": format!("Writing {}", file_name),
+                "content": content,
+                "status": "applied",
+            }))
+        }
+        "patch" => {
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            let old_string = args.get("old_string").and_then(|s| s.as_str()).unwrap_or("");
+            if path.is_empty() || old_string.is_empty() {
+                return None;
+            }
+            let new_string = args.get("new_string").and_then(|s| s.as_str()).unwrap_or("");
+            let file_name = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path);
+            Some(serde_json::json!({
+                "kind": "patch",
+                "path": path,
+                "title": format!("Editing {}", file_name),
+                "oldString": old_string,
+                "newString": new_string,
+                "status": "applied",
+            }))
+        }
+        _ => None,
+    }
+}
+
 fn format_tool_activity(tool_name: &str, args: &serde_json::Value) -> ToolActivityInfo {
     match tool_name {
         // ── File operations ───────────────────────────────────────
@@ -1241,19 +1288,21 @@ fn run_durian_query(
                                     serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
 
                                 let info = format_tool_activity(tool_name, &args);
+                                let code_change = build_code_change(tool_name, &args);
 
-                                let _ = app_sess.emit(
-                                    "durian-activity",
-                                    serde_json::json!({
-                                        "id": id_sess,
-                                        "phase": "tool",
-                                        "tool": tool_name,
-                                        "detail": info.detail,
-                                        "icon": info.icon,
-                                        "actionType": info.action_type,
-                                        "path": info.path,
-                                    }),
-                                );
+                                let mut payload = serde_json::json!({
+                                    "id": id_sess,
+                                    "phase": "tool",
+                                    "tool": tool_name,
+                                    "detail": info.detail,
+                                    "icon": info.icon,
+                                    "actionType": info.action_type,
+                                    "path": info.path,
+                                });
+                                if let Some(cc) = code_change {
+                                    payload["codeChange"] = cc;
+                                }
+                                let _ = app_sess.emit("durian-activity", payload);
                             }
                         }
                     }

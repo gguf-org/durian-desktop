@@ -212,9 +212,9 @@ export default function App() {
     let unlisten: (() => void) | undefined
     let cancelled = false
 
-    listen<{ id: string; phase?: string; tool?: string; detail?: string; icon?: string; ping?: boolean; actionType?: string; path?: string }>('durian-activity', event => {
+    listen<{ id: string; phase?: string; tool?: string; detail?: string; icon?: string; ping?: boolean; actionType?: string; path?: string; codeChange?: ToolActivity['codeChange'] }>('durian-activity', event => {
       if (cancelled) return
-      const { id, phase, tool, detail, icon, ping, actionType, path } = event.payload
+      const { id, phase, tool, detail, icon, ping, actionType, path, codeChange } = event.payload
       if (id !== currentQueryIdRef.current) return
 
       // Ping events are just keep-alive, skip
@@ -230,6 +230,7 @@ export default function App() {
           icon,
           actionType,
           path,
+          codeChange,
         }
         setRecentActivities(prev => [...prev.slice(-30), activity])
         // Also persist to the last assistant message

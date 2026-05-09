@@ -7,6 +7,18 @@ export interface Message {
   toolActivity?: ToolActivity[]
 }
 
+export interface CodeChange {
+  kind: 'write' | 'patch' | 'diff'
+  path: string
+  title: string
+  language?: string
+  content?: string
+  diff?: string
+  oldString?: string
+  newString?: string
+  status?: 'pending' | 'applied' | 'failed'
+}
+
 export interface ToolActivity {
   id: string
   tool: string
@@ -16,6 +28,7 @@ export interface ToolActivity {
   icon?: string   // emoji icon from backend (e.g. "📄", "⌨", "🔧")
   actionType?: string  // read, write, terminal, search, browser, memory, skill, delegate, generic
   path?: string   // file path, URL, or command being operated on
+  codeChange?: CodeChange
 }
 
 export type ApprovalChoice = 'allow' | 'reject' | 'other'

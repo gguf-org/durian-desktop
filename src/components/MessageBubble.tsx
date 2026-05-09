@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { Message, ToolActivity } from '../types'
+import DiffView from './DiffView'
 
 interface Props {
   message: Message
@@ -40,13 +41,115 @@ const ACTION_LABELS: Record<string, { past: string; active: string }> = {
   generic: { past: 'Processed', active: 'Processing' },
 }
 
-function renderContent(content: string) {
+// ── Inline renderer ──────────────────────────────────────────────────────────
+
+function renderInline(text: string): ReactNode {
+  // Order matters: bold before italic so ** is matched before *
+  const re = /(`[^`]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|_[^_\n]+_|~~[^~\n]+~~|\[[^\]\n]*\]\([^)\n]*\))/g
+  const result: ReactNode[] = []
+  let last = 0
+  let k = 0
+  let m: RegExpExecArray | null
+
+  while ((m = re.exec(text)) !== null) {
+    const full = m[0]
+    const start = m.index
+    if (start > last) result.push(text.slice(last, start))
+
+    if (full[0] === '`') {
+      result.push(<code key={k++} className="msg-inline-code">{full.slice(1, -1)}</code>)
+    } else if (full.startsWith('**')) {
+      result.push(<strong key={k++}>{full.slice(2, -2)}</strong>)
+    } else if (full[0] === '*' || full[0] === '_') {
+      result.push(<em key={k++}>{full.slice(1, -1)}</em>)
+    } else if (full.startsWith('~~')) {
+      result.push(<del key={k++}>{full.slice(2, -2)}</del>)
+    } else {
+      // Link [text](url)
+      const lm = full.match(/^\[([^\]]*)\]\(([^)]*)\)$/)
+      if (lm) {
+        result.push(
+          <a key={k++} href={lm[2]} className="msg-link" target="_blank" rel="noopener noreferrer">
+            {lm[1]}
+          </a>
+        )
+      } else {
+        result.push(full)
+      }
+    }
+    last = start + full.length
+  }
+
+  if (last < text.length) result.push(text.slice(last))
+  return result.length === 0 ? null : result.length === 1 ? result[0] : <>{result}</>
+}
+
+// ── Table renderer ────────────────────────────────────────────────────────────
+
+function isTableRow(line: string): boolean {
+  const t = line.trim()
+  return t.startsWith('|') && t.endsWith('|') && t.length > 2
+}
+
+function parseTableRow(line: string): string[] {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+}
+
+function isSepRow(cells: string[]): boolean {
+  return cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c))
+}
+
+function renderTable(tableLines: string[], key: number): ReactNode {
+  const rows = tableLines.map(parseTableRow)
+  const sepIdx = rows.findIndex(isSepRow)
+  const headerRows = sepIdx >= 1 ? rows.slice(0, sepIdx) : (rows.length > 0 ? [rows[0]] : [])
+  const bodyRows = sepIdx >= 1 ? rows.slice(sepIdx + 1) : rows.slice(1)
+
+  return (
+    <div key={key} className="msg-table-wrapper">
+      <table className="msg-table">
+        {headerRows.length > 0 && (
+          <thead>
+            {headerRows.map((row, i) => (
+              <tr key={i}>{row.map((cell, j) => <th key={j}>{renderInline(cell)}</th>)}</tr>
+            ))}
+          </thead>
+        )}
+        <tbody>
+          {bodyRows.map((row, i) => (
+            <tr key={i}>{row.map((cell, j) => <td key={j}>{renderInline(cell)}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── Heading renderer ──────────────────────────────────────────────────────────
+
+function renderHeading(level: number, text: string, key: number): ReactNode {
+  const cls = `msg-heading msg-h${level}`
+  const content = renderInline(text)
+  switch (level) {
+    case 1: return <h1 key={key} className={cls}>{content}</h1>
+    case 2: return <h2 key={key} className={cls}>{content}</h2>
+    case 3: return <h3 key={key} className={cls}>{content}</h3>
+    case 4: return <h4 key={key} className={cls}>{content}</h4>
+    case 5: return <h5 key={key} className={cls}>{content}</h5>
+    default: return <h6 key={key} className={cls}>{content}</h6>
+  }
+}
+
+// ── Block renderer ────────────────────────────────────────────────────────────
+
+function renderContent(content: string): ReactNode[] {
   const lines = content.split('\n')
   const nodes: ReactNode[] = []
   let inCode = false
   let codeLang = ''
   let codeLines: string[] = []
   let key = 0
+  let i = 0
 
   const flushCode = () => {
     nodes.push(
@@ -59,7 +162,10 @@ function renderContent(content: string) {
     codeLang = ''
   }
 
-  for (const line of lines) {
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Fenced code block
     if (line.startsWith('```')) {
       if (!inCode) {
         inCode = true
@@ -68,40 +174,94 @@ function renderContent(content: string) {
         flushCode()
         inCode = false
       }
-    } else if (inCode) {
-      codeLines.push(line)
-    } else {
-      nodes.push(
-        <div key={key++} className="msg-line">
-          {renderInline(line)}
-        </div>
-      )
+      i++
+      continue
     }
+
+    if (inCode) {
+      codeLines.push(line)
+      i++
+      continue
+    }
+
+    // Table: collect consecutive pipe-delimited rows
+    if (isTableRow(line)) {
+      const tableLines: string[] = []
+      while (i < lines.length && isTableRow(lines[i])) {
+        tableLines.push(lines[i])
+        i++
+      }
+      nodes.push(renderTable(tableLines, key++))
+      continue
+    }
+
+    // ATX heading: # ## ### etc.
+    const hm = line.match(/^(#{1,6})\s+(.+)$/)
+    if (hm) {
+      nodes.push(renderHeading(hm[1].length, hm[2], key++))
+      i++
+      continue
+    }
+
+    // Horizontal rule: --- *** ___
+    if (/^(\*{3,}|-{3,}|_{3,})$/.test(line.trim())) {
+      nodes.push(<hr key={key++} className="msg-hr" />)
+      i++
+      continue
+    }
+
+    // Blockquote: > text
+    if (line.startsWith('> ') || line === '>') {
+      const bqLines: string[] = []
+      while (i < lines.length && (lines[i].startsWith('> ') || lines[i] === '>')) {
+        bqLines.push(lines[i].startsWith('> ') ? lines[i].slice(2) : '')
+        i++
+      }
+      nodes.push(
+        <blockquote key={key++} className="msg-blockquote">
+          {bqLines.map((l, j) => <div key={j} className="msg-line">{renderInline(l)}</div>)}
+        </blockquote>
+      )
+      continue
+    }
+
+    // Unordered list: - * +
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*+]\s+/, ''))
+        i++
+      }
+      nodes.push(
+        <ul key={key++} className="msg-list msg-ul">
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ul>
+      )
+      continue
+    }
+
+    // Ordered list: 1. 2. etc.
+    if (/^\d+\.\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ''))
+        i++
+      }
+      nodes.push(
+        <ol key={key++} className="msg-list msg-ol">
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ol>
+      )
+      continue
+    }
+
+    // Normal line
+    nodes.push(<div key={key++} className="msg-line">{renderInline(line)}</div>)
+    i++
   }
 
   if (inCode && codeLines.length > 0) flushCode()
-
   return nodes
-}
-
-function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(`[^`]+`)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-      return (
-        <code key={i} className="msg-inline-code">
-          {part.slice(1, -1)}
-        </code>
-      )
-    }
-    const boldParts = part.split(/(\*\*[^*]+\*\*)/g)
-    return boldParts.map((bp, j) => {
-      if (bp.startsWith('**') && bp.endsWith('**') && bp.length > 4) {
-        return <strong key={`${i}-${j}`}>{bp.slice(2, -2)}</strong>
-      }
-      return bp ? <span key={`${i}-${j}`}>{bp}</span> : null
-    })
-  })
 }
 
 /** Build the live status label for the current action */
@@ -200,14 +360,14 @@ export default function MessageBubble({ message, isStreaming }: Props) {
             <div className="inline-activity-drawer">
               <div className="inline-activity-log">
                 {activities.slice(-20).map((act, i) => (
-                  <div
-                    key={act.id + i}
-                    className={`activity-line ${PHASE_CLASS[act.phase || 'info'] || ''}`}
-                  >
-                    <span className="activity-icon">{act.icon || FALLBACK_ICONS[act.tool] || '●'}</span>
-                    <span className="activity-text" title={act.path || act.detail}>
-                      {getActivityLabel(act, false)}
-                    </span>
+                  <div key={act.id + i} className={`activity-entry ${PHASE_CLASS[act.phase || 'info'] || ''}`}>
+                    <div className={`activity-line ${PHASE_CLASS[act.phase || 'info'] || ''}`}>
+                      <span className="activity-icon">{act.icon || FALLBACK_ICONS[act.tool] || '●'}</span>
+                      <span className="activity-text" title={act.path || act.detail}>
+                        {getActivityLabel(act, false)}
+                      </span>
+                    </div>
+                    {act.codeChange && <DiffView change={act.codeChange} />}
                   </div>
                 ))}
                 <div ref={activityEndRef} />
